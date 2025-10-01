@@ -185,7 +185,8 @@ static void clear_all(struct kbvas *self)
 		return;
 	}
 
-	kbvas_error_t err = (*self->backend->clear)(self->backend_ctx);
+	struct kbvas_backend *backend = (struct kbvas_backend *)self->backend;
+	kbvas_error_t err = (*self->backend->clear)(backend, self->backend_ctx);
 	if (err != KBVAS_ERROR_NONE) {
 		KBVAS_ERROR("Failed to clear all: %d", err);
 	}
@@ -198,21 +199,25 @@ static void clear_entries(struct kbvas *self, size_t n)
 		return;
 	}
 
-	kbvas_error_t err = (*self->backend->drop)(n, self->backend_ctx);
+	struct kbvas_backend *backend = (struct kbvas_backend *)self->backend;
+	kbvas_error_t err =
+		(*self->backend->drop)(backend, n, self->backend_ctx);
 	if (err != KBVAS_ERROR_NONE) {
 		KBVAS_ERROR("Failed to drop %zu entries: %d", n, err);
 	}
 }
 
-static size_t count_entries(const struct kbvas *self)
+static size_t count_entries(struct kbvas *self)
 {
 	if (!self->backend->count) {
 		KBVAS_ERROR("No support for count()");
 		return 0;
 	}
 
+	struct kbvas_backend *backend = (struct kbvas_backend *)self->backend;
 	size_t count = 0;
-	kbvas_error_t err = (*self->backend->count)(&count, self->backend_ctx);
+	kbvas_error_t err =
+		(*self->backend->count)(backend, &count, self->backend_ctx);
 	if (err != KBVAS_ERROR_NONE) {
 		KBVAS_ERROR("Failed to count entries: %d", err);
 		return 0;
@@ -239,7 +244,7 @@ void kbvas_clear_batch(struct kbvas *self)
 	clear_entries(self, MIN(self->batch_count, count_entries(self)));
 }
 
-bool kbvas_is_batch_ready(const struct kbvas *self)
+bool kbvas_is_batch_ready(struct kbvas *self)
 {
 	if (self == NULL) {
 		return false;
@@ -282,7 +287,8 @@ kbvas_error_t kbvas_peek(struct kbvas *self, struct kbvas_entry *entry)
 		return KBVAS_ERROR_UNSUPPORTED;
 	}
 
-	return (*self->backend->peek)(entry, self->backend_ctx);
+	struct kbvas_backend *backend = (struct kbvas_backend *)self->backend;
+	return (*self->backend->peek)(backend, entry, self->backend_ctx);
 }
 
 kbvas_error_t kbvas_enqueue(struct kbvas *self,
@@ -310,7 +316,9 @@ kbvas_error_t kbvas_enqueue(struct kbvas *self,
 	kbvas_error_t err = process_tlv(data, datasize, entry);
 
 	if (err == KBVAS_ERROR_NONE) {
-		err = (*self->backend->push)(entry, self->backend_ctx);
+		struct kbvas_backend *backend =
+			(struct kbvas_backend *)self->backend;
+		err = (*self->backend->push)(backend, entry, self->backend_ctx);
 	}
 
 	free(entry);
@@ -328,7 +336,8 @@ kbvas_error_t kbvas_dequeue(struct kbvas *self, struct kbvas_entry *entry)
 		return KBVAS_ERROR_UNSUPPORTED;
 	}
 
-	return (*self->backend->pop)(entry, self->backend_ctx);
+	struct kbvas_backend *backend = (struct kbvas_backend *)self->backend;
+	return (*self->backend->pop)(backend, entry, self->backend_ctx);
 }
 
 void kbvas_iterate(struct kbvas *self, kbvas_iterator_t iterator, void *ctx)
@@ -342,8 +351,9 @@ void kbvas_iterate(struct kbvas *self, kbvas_iterator_t iterator, void *ctx)
 		return;
 	}
 
-	kbvas_error_t err = (*self->backend->iterate)(self,
-			iterator, ctx, self->backend_ctx);
+	struct kbvas_backend *backend = (struct kbvas_backend *)self->backend;
+	kbvas_error_t err = (*self->backend->iterate)(backend,
+			iterator, ctx, self);
 
 	if (err != KBVAS_ERROR_NONE) {
 		KBVAS_ERROR("Failed to iterate entries: %d", err);

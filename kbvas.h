@@ -78,6 +78,7 @@ struct kbvas_entry {
 };
 
 struct kbvas;
+struct kbvas_backend;
 
 /**
  * @brief Callback type for iterating kbvas entries.
@@ -105,25 +106,19 @@ struct kbvas_backend_api {
 	 *
 	 * @param[in] entry  Entry to be enqueued. Backend must copy payload.
 	 * @param[in] ctx    Backend-specific context pointer.
-	 *
-	 * @retval KBVAS_OK        Success.
-	 * @retval KBVAS_E_NOSPACE Out of storage space.
-	 * @retval KBVAS_E_IO      I/O or device error.
-	 * @retval KBVAS_E_INVAL   Invalid argument.
 	 */
-	kbvas_error_t (*push)(const struct kbvas_entry *entry, void *ctx);
+	kbvas_error_t (*push)(struct kbvas_backend *self,
+			const struct kbvas_entry *entry, void *ctx);
 	/**
 	 * @brief Remove and return the oldest entry (FIFO).
 	 *
 	 * @param[out] entry Dequeued entry (valid until next mutating call).
 	 * @param[in]  ctx   Backend context.
-	 *
-	 * @retval KBVAS_OK       Success.
-	 * @retval KBVAS_E_EMPTY  Queue is empty.
-	 * @retval KBVAS_E_IO     I/O or corruption error.
 	 */
-	kbvas_error_t (*pop)(struct kbvas_entry *entry, void *ctx);
-	kbvas_error_t (*peek)(struct kbvas_entry *entry, void *ctx);
+	kbvas_error_t (*pop)(struct kbvas_backend *self,
+			struct kbvas_entry *entry, void *ctx);
+	kbvas_error_t (*peek)(struct kbvas_backend *self,
+			struct kbvas_entry *entry, void *ctx);
 	/**
 	 * @brief Remove @p n entries from the head of the queue.
 	 *
@@ -132,24 +127,17 @@ struct kbvas_backend_api {
 	 *
 	 * @param[in] n    Number of entries to remove (must be > 0).
 	 * @param[in] ctx  Backend context.
-	 *
-	 * @retval KBVAS_OK       Success.
-	 * @retval KBVAS_E_EMPTY  Queue has fewer than @p n entries.
-	 * @retval KBVAS_E_INVAL  Invalid argument (e.g., n == 0).
-	 * @retval KBVAS_E_IO     I/O or corruption error.
 	 */
-	kbvas_error_t (*drop)(size_t n, void *ctx);
-	kbvas_error_t (*clear)(void *ctx);
+	kbvas_error_t (*drop)(struct kbvas_backend *self, size_t n, void *ctx);
+	kbvas_error_t (*clear)(struct kbvas_backend *self, void *ctx);
 	/**
 	 * @brief Get the current number of entries in the queue.
 	 *
 	 * @param[out] count Entry count (exact unless documented otherwise).
 	 * @param[in]  ctx   Backend context.
-	 *
-	 * @retval KBVAS_OK   Success.
-	 * @retval KBVAS_E_IO I/O or device error.
 	 */
-	kbvas_error_t (*count)(size_t *count, void *ctx);
+	kbvas_error_t (*count)(struct kbvas_backend *self,
+			size_t *count, void *ctx);
 	/**
 	 * @brief Iterate over queued entries in FIFO order.
 	 *
@@ -161,13 +149,11 @@ struct kbvas_backend_api {
 	 * @param[in] self         kbvas instance (passed through for callback).
 	 * @param[in] iterator     Callback invoked per entry.
 	 * @param[in] iterator_ctx User-defined context passed to the callback.
-	 * @param[in] backend_ctx  Backend-specific context.
-	 *
-	 * @retval KBVAS_OK   Success (including normal early stop).
-	 * @retval KBVAS_E_IO I/O or device error.
+	 * @param[in] kbvas        kbvas instance (passed through for callback).
 	 */
-	kbvas_error_t (*iterate)(struct kbvas *self, kbvas_iterator_t iterator,
-			void *iterator_ctx, void *backend_ctx);
+	kbvas_error_t (*iterate)(struct kbvas_backend *self,
+			kbvas_iterator_t iterator, void *iterator_ctx,
+			struct kbvas *kbvas_instance);
 };
 
 /**
@@ -254,7 +240,7 @@ kbvas_batch_count_t kbvas_get_batch_count(const struct kbvas *self);
  *
  * @return True if the batch is ready, false otherwise.
  */
-bool kbvas_is_batch_ready(const struct kbvas *self);
+bool kbvas_is_batch_ready(struct kbvas *self);
 
 /**
  * @brief Enqueues data into the kbvas instance.

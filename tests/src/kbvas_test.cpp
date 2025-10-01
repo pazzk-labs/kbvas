@@ -322,7 +322,7 @@ static const uint8_t expected2[] = {
 #elif KBVAS_CELL_VOLTAGE_MAX_COUNT == 192
 #else
 #error "Unsupported KBVAS_CELL_VOLTAGE_MAX_COUNT"
-#endif	
+#endif
 
 static bool count_iterator(struct kbvas *self,
 		const struct kbvas_entry *entry, void *ctx) {

@@ -20,8 +20,6 @@ struct entry {
 	struct list link;
 };
 
-static struct kbvas_backend *singleton;
-
 static void clear_all(struct kbvas_backend *self)
 {
 	struct list *p;
@@ -59,41 +57,44 @@ static size_t count_entries(const struct kbvas_backend *self)
 	return (size_t)list_count(&self->entries);
 }
 
-static kbvas_error_t do_push(const struct kbvas_entry *entry, void *ctx)
+static kbvas_error_t do_push(struct kbvas_backend *self,
+		const struct kbvas_entry *entry, void *ctx)
 {
 	struct entry *p = (struct entry *)calloc(1, sizeof(*p));
 	if (!p) {
 		return KBVAS_ERROR_NOSPC;
 	}
 	memcpy(&p->entry, entry, sizeof(*entry));
-	list_add_tail(&p->link, &singleton->entries);
+	list_add_tail(&p->link, &self->entries);
 	return KBVAS_ERROR_NONE;
 }
 
-static kbvas_error_t do_pop(struct kbvas_entry *entry, void *ctx)
+static kbvas_error_t do_pop(struct kbvas_backend *self,
+		struct kbvas_entry *entry, void *ctx)
 {
-	if (list_empty(&singleton->entries)) {
+	if (list_empty(&self->entries)) {
 		return KBVAS_ERROR_NOENT;
 	}
 
-	struct entry *p = list_entry(list_first(&singleton->entries),
+	struct entry *p = list_entry(list_first(&self->entries),
 			struct entry, link);
 
 	memcpy(entry, &p->entry, sizeof(*entry));
 
-	list_del(&p->link, &singleton->entries);
+	list_del(&p->link, &self->entries);
 	free(p);
 
 	return KBVAS_ERROR_NONE;
 }
 
-static kbvas_error_t do_peek(struct kbvas_entry *entry, void *ctx)
+static kbvas_error_t do_peek(struct kbvas_backend *self,
+		struct kbvas_entry *entry, void *ctx)
 {
-	if (list_empty(&singleton->entries)) {
+	if (list_empty(&self->entries)) {
 		return KBVAS_ERROR_NOENT;
 	}
 
-	struct entry *p = list_entry(list_first(&singleton->entries),
+	struct entry *p = list_entry(list_first(&self->entries),
 			struct entry, link);
 
 	memcpy(entry, &p->entry, sizeof(*entry));
@@ -101,26 +102,27 @@ static kbvas_error_t do_peek(struct kbvas_entry *entry, void *ctx)
 	return KBVAS_ERROR_NONE;
 }
 
-static kbvas_error_t do_drop(size_t n, void *ctx)
+static kbvas_error_t do_drop(struct kbvas_backend *self, size_t n, void *ctx)
 {
 	if (n == 0) {
-		return KBVAS_ERROR_OUT_OF_RANGE_VALUE;
+		return KBVAS_ERROR_MISSING_PARAM;
 	}
 
-	clear_entries(singleton, n);
+	clear_entries(self, n);
 
 	return KBVAS_ERROR_NONE;
 }
 
-static kbvas_error_t do_clear(void *ctx)
+static kbvas_error_t do_clear(struct kbvas_backend *self, void *ctx)
 {
-	if (singleton) {
-		clear_all(singleton);
+	if (self) {
+		clear_all(self);
 	}
 	return KBVAS_ERROR_NONE;
 }
 
-static kbvas_error_t do_count(size_t *count, void *ctx)
+static kbvas_error_t do_count(struct kbvas_backend *self,
+		size_t *count, void *ctx)
 {
 	(void)ctx;
 
@@ -128,8 +130,8 @@ static kbvas_error_t do_count(size_t *count, void *ctx)
 		return KBVAS_ERROR_MISSING_PARAM;
 	}
 
-	if (singleton) {
-		*count = count_entries(singleton);
+	if (self) {
+		*count = count_entries(self);
 	} else {
 		*count = 0;
 	}
@@ -137,17 +139,18 @@ static kbvas_error_t do_count(size_t *count, void *ctx)
 	return KBVAS_ERROR_NONE;
 }
 
-static kbvas_error_t do_iterate(struct kbvas *self, kbvas_iterator_t iterator,
-		void *iterator_ctx, void *backend_ctx)
+static kbvas_error_t do_iterate(struct kbvas_backend *self,
+		kbvas_iterator_t iterator,
+		void *iterator_ctx, struct kbvas *kbvas_instance)
 {
 	if (self == NULL || iterator == NULL) {
 		return KBVAS_ERROR_MISSING_PARAM;
 	}
 
 	struct list *p;
-	list_for_each(p, &singleton->entries) {
+	list_for_each(p, &self->entries) {
 		struct entry *e = list_entry(p, struct entry, link);
-		if (!(*iterator)(self, &e->entry, iterator_ctx)) {
+		if (!(*iterator)(kbvas_instance, &e->entry, iterator_ctx)) {
 			break;
 		}
 	}
@@ -177,15 +180,14 @@ struct kbvas_backend_api *kbvas_memory_backend_create(void)
 
 	list_init(&backend->entries);
 
-	singleton = backend;
-
 	return &backend->api;
 }
 
 void kbvas_memory_backend_destroy(struct kbvas_backend_api *backend)
 {
 	if (backend) {
-		backend->clear(NULL);
+		struct kbvas_backend *self = (struct kbvas_backend *)backend;
+		backend->clear(self, NULL);
 		free(backend);
 	}
 }

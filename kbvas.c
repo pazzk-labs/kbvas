@@ -9,15 +9,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "libmcu/list.h"
 #include "libmcu/base64.h"
 
 #if !defined(MIN)
 #define MIN(a, b)			(((a) > (b))? (b) : (a))
-#endif
-
-#if !defined(KBVAS_MAX_BATCH_COUNT)
-#define KBVAS_MAX_BATCH_COUNT		20
 #endif
 
 #if !defined(KBVAS_DEBUG)
@@ -33,14 +28,20 @@
 #define MIN_TLV_LEN			6
 
 enum data_type {
-	TYPE_TIMESTAMP	= 0xA1,
-	TYPE_VIN	= 0xA2,
-	TYPE_SOC	= 0xA3,
-	TYPE_SOH	= 0xA4,
-	TYPE_BPA	= 0xA5,
-	TYPE_BPV	= 0xA6,
-	TYPE_BSV	= 0xA7,
-	TYPE_BMT	= 0xA8,
+	TYPE_TIMESTAMP		= 0xA1,
+	TYPE_VIN		= 0xA2,
+	TYPE_SOC		= 0xA3,
+	TYPE_SOH		= 0xA4,
+	TYPE_BPA		= 0xA5,
+	TYPE_BPV		= 0xA6,
+	TYPE_BSV		= 0xA7,
+	TYPE_BMT		= 0xA8,
+	TYPE_SESSION_DURATION	= 0xB1,
+	TYPE_BATTERY_ID		= 0xB2,
+	TYPE_BSV_MIN_MAX	= 0xB7,
+	TYPE_BMT_MIN_MAX	= 0xB8,
+	TYPE_COUNTER		= 0xC1,
+	TYPE_ENCRYPTED_VIN	= 0xC2,
 };
 
 struct tlv {
@@ -49,29 +50,30 @@ struct tlv {
 	const uint8_t *value;
 };
 
-struct entry {
-	struct kbvas_entry public;
-	struct list link;
-};
-
 struct kbvas {
-	struct list list; /* list of kbvas_entry */
+	struct kbvas_backend_api *backend;
+	void *backend_ctx;
 	kbvas_batch_count_t batch_count;
 };
 
 static size_t parse_tlv(struct tlv *tlv, const uint8_t *data, size_t datasize)
 {
 	size_t bytes_parsed = 0;
+	size_t expected_len;
 
 	memset(tlv, 0, sizeof(*tlv));
 	tlv->type = data[0];
 
 	switch (tlv->type) {
 	case TYPE_BSV:
-		if (datasize >= 4) {
-			tlv->length = (uint16_t)((uint16_t)data[1] << 8 | data[2]);
+		if (datasize < 4) {
+			break;
+		}
+		tlv->length = (uint16_t)((uint16_t)data[1] << 8 | data[2]);
+		expected_len = (size_t)tlv->length + 3;
+		if (datasize >= expected_len) {
 			tlv->value = &data[3];
-			bytes_parsed = 3 + tlv->length;
+			bytes_parsed = expected_len;
 		}
 		break;
 	case TYPE_TIMESTAMP: /* fall through */
@@ -81,10 +83,14 @@ static size_t parse_tlv(struct tlv *tlv, const uint8_t *data, size_t datasize)
 	case TYPE_BPA: /* fall through */
 	case TYPE_BPV: /* fall through */
 	case TYPE_BMT:
-		if (datasize >= 3) {
-			tlv->length = data[1];
+		if (datasize < 3) {
+			break;
+		}
+		tlv->length = data[1];
+		expected_len = (size_t)tlv->length + 2;
+		if (datasize >= expected_len) {
 			tlv->value = &data[2];
-			bytes_parsed = 2 + tlv->length;
+			bytes_parsed = expected_len;
 		}
 		break;
 	default:
@@ -99,6 +105,9 @@ static kbvas_error_t parse_battery(const struct tlv *tlv,
 {
 	switch (tlv->type) {
 	case TYPE_TIMESTAMP:
+		if (tlv->length != 4) {
+			return KBVAS_ERROR_INVALID_FORMAT;
+		}
 		info->timestamp = (time_t)((uint32_t)tlv->value[0] << 24 |
 				(uint32_t)tlv->value[1] << 16 |
 				(uint32_t)tlv->value[2] << 8 |
@@ -106,36 +115,68 @@ static kbvas_error_t parse_battery(const struct tlv *tlv,
 		break;
 #if defined(KBVAS_USE_RAW_ENCODING)
 	case TYPE_VIN:
+		if (!tlv->length) {
+			return KBVAS_ERROR_INVALID_FORMAT;
+		}
 		memcpy(info->data.vin, tlv->value,
 				MIN(tlv->length, sizeof(info->data.vin)));
 		break;
 	case TYPE_SOC:
+		if (tlv->length != 1) {
+			return KBVAS_ERROR_INVALID_FORMAT;
+		}
 		info->data.soc = tlv->value[0];
 		break;
 	case TYPE_SOH:
+		if (tlv->length != 1) {
+			return KBVAS_ERROR_INVALID_FORMAT;
+		}
 		info->data.soh = tlv->value[0];
 		break;
 	case TYPE_BPA:
+		if (tlv->length != 2) {
+			return KBVAS_ERROR_INVALID_FORMAT;
+		}
 		info->data.bpa = (uint16_t)((uint16_t)tlv->value[0] << 8
 				| tlv->value[1]);
 		break;
 	case TYPE_BPV:
+		if (tlv->length != 2) {
+			return KBVAS_ERROR_INVALID_FORMAT;
+		}
 		info->data.bpv = (uint16_t)((uint16_t)tlv->value[0] << 8
 				| tlv->value[1]);
 		break;
 	case TYPE_BSV:
+		if (!tlv->length) {
+			return KBVAS_ERROR_INVALID_FORMAT;
+		}
 		info->data.bsv_count = tlv->length;
 		memcpy(info->data.bsv, tlv->value,
 				MIN(tlv->length, sizeof(info->data.bsv)));
 		break;
 	case TYPE_BMT:
+		if (!tlv->length) {
+			return KBVAS_ERROR_INVALID_FORMAT;
+		}
 		info->data.bmt_count = (uint8_t)tlv->length;
 		memcpy(info->data.bmt, tlv->value,
 				MIN(tlv->length, sizeof(info->data.bmt)));
 		break;
+#else /* KBVAS_USE_BASE64 */
+	case TYPE_VIN: /* fall through */
+	case TYPE_SOC: /* fall through */
+	case TYPE_SOH: /* fall through */
+	case TYPE_BPA: /* fall through */
+	case TYPE_BPV: /* fall through */
+	case TYPE_BSV: /* fall through */
+	case TYPE_BMT:
+		/* skip other types when using base64 encoding */
+		break;
 #endif
 	default:
-		break;
+		KBVAS_ERROR("Unknown TLV type: 0x%02X", tlv->type);
+		return KBVAS_ERROR_INVALID_TYPE;
 	}
 
 	return KBVAS_ERROR_NONE;
@@ -183,39 +224,50 @@ static kbvas_error_t process_tlv(const uint8_t *tlv, size_t tlv_len,
 
 static void clear_all(struct kbvas *self)
 {
-	struct list *p;
-	struct list *t;
+	if (!self->backend->clear) {
+		KBVAS_ERROR("No support for clear()");
+		return;
+	}
 
-	list_for_each_safe(p, t, &self->list) {
-		struct entry *entry = list_entry(p, struct entry, link);
-		list_del(&entry->link, &self->list);
-		free(entry);
+	struct kbvas_backend *backend = (struct kbvas_backend *)self->backend;
+	kbvas_error_t err = (*self->backend->clear)(backend, self->backend_ctx);
+	if (err != KBVAS_ERROR_NONE) {
+		KBVAS_ERROR("Failed to clear all: %d", err);
 	}
 }
 
 static void clear_entries(struct kbvas *self, size_t n)
 {
-	struct list *p;
-	struct list *t;
-
-	if (n == 0) {
+	if (!self->backend->drop) {
+		KBVAS_ERROR("No support for drop()");
 		return;
 	}
 
-	list_for_each_safe(p, t, &self->list) {
-		if (n-- == 0) {
-			break;
-		}
-
-		struct entry *entry = list_entry(p, struct entry, link);
-		list_del(&entry->link, &self->list);
-		free(entry);
+	struct kbvas_backend *backend = (struct kbvas_backend *)self->backend;
+	kbvas_error_t err =
+		(*self->backend->drop)(backend, n, self->backend_ctx);
+	if (err != KBVAS_ERROR_NONE) {
+		KBVAS_ERROR("Failed to drop %zu entries: %d", n, err);
 	}
 }
 
-static size_t count_entries(const struct kbvas *self)
+static size_t count_entries(struct kbvas *self)
 {
-	return (size_t)list_count(&self->list);
+	if (!self->backend->count) {
+		KBVAS_ERROR("No support for count()");
+		return 0;
+	}
+
+	struct kbvas_backend *backend = (struct kbvas_backend *)self->backend;
+	size_t count = 0;
+	kbvas_error_t err =
+		(*self->backend->count)(backend, &count, self->backend_ctx);
+	if (err != KBVAS_ERROR_NONE) {
+		KBVAS_ERROR("Failed to count entries: %d", err);
+		return 0;
+	}
+
+	return count;
 }
 
 void kbvas_clear(struct kbvas *self)
@@ -236,7 +288,7 @@ void kbvas_clear_batch(struct kbvas *self)
 	clear_entries(self, MIN(self->batch_count, count_entries(self)));
 }
 
-bool kbvas_is_batch_ready(const struct kbvas *self)
+bool kbvas_is_batch_ready(struct kbvas *self)
 {
 	if (self == NULL) {
 		return false;
@@ -275,16 +327,12 @@ kbvas_error_t kbvas_peek(struct kbvas *self, struct kbvas_entry *entry)
 		return KBVAS_ERROR_MISSING_PARAM;
 	}
 
-	if (list_empty(&self->list)) {
-		return KBVAS_ERROR_NOENT;
+	if (!self->backend->peek) {
+		return KBVAS_ERROR_UNSUPPORTED;
 	}
 
-	struct entry *e = list_entry(list_first(&self->list),
-			struct entry, link);
-
-	memcpy(entry, &e->public, sizeof(*entry));
-
-	return KBVAS_ERROR_NONE;
+	struct kbvas_backend *backend = (struct kbvas_backend *)self->backend;
+	return (*self->backend->peek)(backend, entry, self->backend_ctx);
 }
 
 kbvas_error_t kbvas_enqueue(struct kbvas *self,
@@ -298,19 +346,26 @@ kbvas_error_t kbvas_enqueue(struct kbvas *self,
 		return KBVAS_ERROR_INVALID_FORMAT;
 	}
 
-	struct entry *entry = (struct entry *)calloc(1, sizeof(*entry));
+	if (!self->backend->push) {
+		return KBVAS_ERROR_UNSUPPORTED;
+	}
+
+	struct kbvas_entry *entry = (struct kbvas_entry *)
+		calloc(1, sizeof(*entry));
 
 	if (entry == NULL) {
 		return KBVAS_ERROR_OOM;
 	}
 
-	kbvas_error_t err = process_tlv(data, datasize, &entry->public);
+	kbvas_error_t err = process_tlv(data, datasize, entry);
 
 	if (err == KBVAS_ERROR_NONE) {
-		list_add_tail(&entry->link, &self->list);
-	} else {
-		free(entry);
+		struct kbvas_backend *backend =
+			(struct kbvas_backend *)self->backend;
+		err = (*self->backend->push)(backend, entry, self->backend_ctx);
 	}
+
+	free(entry);
 
 	return err;
 }
@@ -321,51 +376,44 @@ kbvas_error_t kbvas_dequeue(struct kbvas *self, struct kbvas_entry *entry)
 		return KBVAS_ERROR_MISSING_PARAM;
 	}
 
-	if (list_empty(&self->list)) {
-		return KBVAS_ERROR_NOENT;
+	if (!self->backend->pop) {
+		return KBVAS_ERROR_UNSUPPORTED;
 	}
 
-	struct entry *e = list_entry(list_first(&self->list),
-			struct entry, link);
-
-	memcpy(entry, &e->public, sizeof(*entry));
-
-	list_del(&e->link, &self->list);
-	free(e);
-
-	return KBVAS_ERROR_NONE;
+	struct kbvas_backend *backend = (struct kbvas_backend *)self->backend;
+	return (*self->backend->pop)(backend, entry, self->backend_ctx);
 }
 
-void kbvas_iterate(struct kbvas *self, kbvas_iterator_t iterator,
-		kbvas_batch_count_t max_count, void *ctx)
+void kbvas_iterate(struct kbvas *self, kbvas_iterator_t iterator, void *ctx)
 {
 	if (self == NULL || iterator == NULL) {
 		return;
 	}
 
-	struct list *p;
+	if (!self->backend->iterate) {
+		KBVAS_ERROR("No support for iterate()");
+		return;
+	}
 
-	list_for_each(p, &self->list) {
-		struct entry *entry = list_entry(p, struct entry, link);
-		if (!iterator(self, &entry->public, ctx)) {
-			break;
-		}
+	struct kbvas_backend *backend = (struct kbvas_backend *)self->backend;
+	kbvas_error_t err = (*self->backend->iterate)(backend,
+			iterator, ctx, self);
 
-		if (max_count && --max_count == 0) {
-			break;
-		}
+	if (err != KBVAS_ERROR_NONE) {
+		KBVAS_ERROR("Failed to iterate entries: %d", err);
 	}
 }
 
-struct kbvas *kbvas_create(void)
+struct kbvas *kbvas_create(struct kbvas_backend_api *api, void *backend_ctx)
 {
-	struct kbvas *self = (struct kbvas *)calloc(1, sizeof(*self));
+	struct kbvas *self;
 
-	if (self == NULL) {
+	if (!api || !(self = (struct kbvas *)calloc(1, sizeof(*self)))) {
 		return NULL;
 	}
 
-	list_init(&self->list);
+	self->backend = api;
+	self->backend_ctx = backend_ctx;
 	self->batch_count = 1;
 
 	return self;

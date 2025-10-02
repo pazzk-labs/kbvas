@@ -4,6 +4,7 @@ COMPONENT_NAME = KBVAS
 
 SRC_FILES = \
 	../kbvas.c \
+	../kbvas_memory_backend.c \
 
 TEST_SRC_FILES = \
 	src/kbvas_test.cpp \
@@ -22,5 +23,6 @@ CPPUTEST_CPPFLAGS = -include ../external/libmcu/modules/logging/include/libmcu/l
 		    -DKBVAS_DEBUG=debug \
 		    -DKBVAS_INFO=info \
 		    -DKBVAS_ERROR=error \
+		    -DKBVAS_CELL_VOLTAGE_MAX_COUNT=960 \
 
 include runners/MakefileRunner

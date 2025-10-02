@@ -1,7 +1,6 @@
 # 한국환경공단 화재예방형 전기차 충전기 배터리 정보 교환 프로토콜 라이브러리
 
 ## Dependencies
-- [`libmcu/list.h`](https://github.com/libmcu/libmcu/blob/main/modules/common/include/libmcu/list.h)
 - [`libmcu/base64.h`](https://github.com/libmcu/libmcu/blob/main/modules/common/include/libmcu/base64.h)
 
 ## Usage
@@ -18,12 +17,13 @@ static bool on_kbvas_iterate(struct kbvas *self, const struct kbvas_entry *entry
 }
 
 void main(void) {
-    struct kbvas *kbvas = kbvas_create();
+    struct kbvas_backend_api *backend = kbvas_memory_backend_create();
+    struct kbvas *kbvas = kbvas_create(backend, NULL);
     kbvas_set_batch_count(kbvas, BATCH_MAXLEN);
 
     while (1) {
-        if (kbvas_is_batch_ready) {
-            kbvas_iterate(kbvas, on_kbvas_iterate, BATCH_MAXLEN, NULL);
+        if (kbvas_is_batch_ready(kbvas)) {
+            kbvas_iterate(kbvas, on_kbvas_iterate, NULL);
             kbvas_clear_batch(kbvas);
         }
     }

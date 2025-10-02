@@ -59,16 +59,21 @@ struct kbvas {
 static size_t parse_tlv(struct tlv *tlv, const uint8_t *data, size_t datasize)
 {
 	size_t bytes_parsed = 0;
+	size_t expected_len;
 
 	memset(tlv, 0, sizeof(*tlv));
 	tlv->type = data[0];
 
 	switch (tlv->type) {
 	case TYPE_BSV:
-		if (datasize >= 4) {
-			tlv->length = (uint16_t)((uint16_t)data[1] << 8 | data[2]);
+		if (datasize < 4) {
+			break;
+		}
+		tlv->length = (uint16_t)((uint16_t)data[1] << 8 | data[2]);
+		expected_len = (size_t)tlv->length + 3;
+		if (datasize >= expected_len) {
 			tlv->value = &data[3];
-			bytes_parsed = 3 + tlv->length;
+			bytes_parsed = expected_len;
 		}
 		break;
 	case TYPE_TIMESTAMP: /* fall through */
@@ -78,10 +83,14 @@ static size_t parse_tlv(struct tlv *tlv, const uint8_t *data, size_t datasize)
 	case TYPE_BPA: /* fall through */
 	case TYPE_BPV: /* fall through */
 	case TYPE_BMT:
-		if (datasize >= 3) {
-			tlv->length = data[1];
+		if (datasize < 3) {
+			break;
+		}
+		tlv->length = data[1];
+		expected_len = (size_t)tlv->length + 2;
+		if (datasize >= expected_len) {
 			tlv->value = &data[2];
-			bytes_parsed = 2 + tlv->length;
+			bytes_parsed = expected_len;
 		}
 		break;
 	default:
@@ -96,6 +105,9 @@ static kbvas_error_t parse_battery(const struct tlv *tlv,
 {
 	switch (tlv->type) {
 	case TYPE_TIMESTAMP:
+		if (tlv->length != 4) {
+			return KBVAS_ERROR_INVALID_FORMAT;
+		}
 		info->timestamp = (time_t)((uint32_t)tlv->value[0] << 24 |
 				(uint32_t)tlv->value[1] << 16 |
 				(uint32_t)tlv->value[2] << 8 |
@@ -103,36 +115,68 @@ static kbvas_error_t parse_battery(const struct tlv *tlv,
 		break;
 #if defined(KBVAS_USE_RAW_ENCODING)
 	case TYPE_VIN:
+		if (!tlv->length) {
+			return KBVAS_ERROR_INVALID_FORMAT;
+		}
 		memcpy(info->data.vin, tlv->value,
 				MIN(tlv->length, sizeof(info->data.vin)));
 		break;
 	case TYPE_SOC:
+		if (tlv->length != 1) {
+			return KBVAS_ERROR_INVALID_FORMAT;
+		}
 		info->data.soc = tlv->value[0];
 		break;
 	case TYPE_SOH:
+		if (tlv->length != 1) {
+			return KBVAS_ERROR_INVALID_FORMAT;
+		}
 		info->data.soh = tlv->value[0];
 		break;
 	case TYPE_BPA:
+		if (tlv->length != 2) {
+			return KBVAS_ERROR_INVALID_FORMAT;
+		}
 		info->data.bpa = (uint16_t)((uint16_t)tlv->value[0] << 8
 				| tlv->value[1]);
 		break;
 	case TYPE_BPV:
+		if (tlv->length != 2) {
+			return KBVAS_ERROR_INVALID_FORMAT;
+		}
 		info->data.bpv = (uint16_t)((uint16_t)tlv->value[0] << 8
 				| tlv->value[1]);
 		break;
 	case TYPE_BSV:
+		if (!tlv->length) {
+			return KBVAS_ERROR_INVALID_FORMAT;
+		}
 		info->data.bsv_count = tlv->length;
 		memcpy(info->data.bsv, tlv->value,
 				MIN(tlv->length, sizeof(info->data.bsv)));
 		break;
 	case TYPE_BMT:
+		if (!tlv->length) {
+			return KBVAS_ERROR_INVALID_FORMAT;
+		}
 		info->data.bmt_count = (uint8_t)tlv->length;
 		memcpy(info->data.bmt, tlv->value,
 				MIN(tlv->length, sizeof(info->data.bmt)));
 		break;
+#else /* KBVAS_USE_BASE64 */
+	case TYPE_VIN: /* fall through */
+	case TYPE_SOC: /* fall through */
+	case TYPE_SOH: /* fall through */
+	case TYPE_BPA: /* fall through */
+	case TYPE_BPV: /* fall through */
+	case TYPE_BSV: /* fall through */
+	case TYPE_BMT:
+		/* skip other types when using base64 encoding */
+		break;
 #endif
 	default:
-		break;
+		KBVAS_ERROR("Unknown TLV type: 0x%02X", tlv->type);
+		return KBVAS_ERROR_INVALID_TYPE;
 	}
 
 	return KBVAS_ERROR_NONE;

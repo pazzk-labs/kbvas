@@ -372,7 +372,7 @@ kbvas_error_t kbvas_enqueue(struct kbvas *self,
 
 kbvas_error_t kbvas_dequeue(struct kbvas *self, struct kbvas_entry *entry)
 {
-	if (self == NULL || entry == NULL) {
+	if (self == NULL) {
 		return KBVAS_ERROR_MISSING_PARAM;
 	}
 

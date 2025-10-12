@@ -79,7 +79,9 @@ static kbvas_error_t do_pop(struct kbvas_backend *self,
 	struct entry *p = list_entry(list_first(&self->entries),
 			struct entry, link);
 
-	memcpy(entry, &p->entry, sizeof(*entry));
+	if (entry) {
+		memcpy(entry, &p->entry, sizeof(*entry));
+	}
 
 	list_del(&p->link, &self->entries);
 	free(p);

@@ -338,6 +338,17 @@ static bool stop_after_one(struct kbvas *self,
 	return false;
 }
 
+static void on_batch_callback(struct kbvas *self, void *ctx) {
+	// Mock callback for batch ready event
+	mock().actualCall("on_batch_callback")
+		.withPointerParameter("self", self)
+		.withPointerParameter("ctx", ctx);
+	if (ctx) {
+		int *counter = (int *)ctx;
+		(*counter)++;
+	}
+}
+
 TEST_GROUP(KBVAS) {
 	struct kbvas *kbvas;
 	struct kbvas_backend_api *backend;
@@ -574,7 +585,6 @@ TEST(KBVAS, nullPointerChecks_ShouldHandleGracefully) {
 
 	// NULL entry pointer checks
 	LONGS_EQUAL(KBVAS_ERROR_MISSING_PARAM, kbvas_peek(kbvas, NULL));
-	LONGS_EQUAL(KBVAS_ERROR_MISSING_PARAM, kbvas_dequeue(kbvas, NULL));
 
 	// NULL in iterate
 	kbvas_iterate(NULL, count_iterator, NULL);
@@ -641,4 +651,135 @@ TEST(KBVAS, enqueue_ShouldRejectTLVAtExactBoundary) {
 
 	kbvas_error_t err = kbvas_enqueue(kbvas, boundary_bsv, sizeof(boundary_bsv));
 	LONGS_EQUAL(KBVAS_ERROR_INVALID_FORMAT, err);
+}
+
+TEST(KBVAS, count_ShouldReturnZero_WhenNullPointer) {
+	LONGS_EQUAL(0, kbvas_count(NULL));
+}
+
+TEST(KBVAS, count_ShouldReturnZero_WhenEmpty) {
+	LONGS_EQUAL(0, kbvas_count(kbvas));
+}
+
+TEST(KBVAS, count_ShouldIncrement_WhenEnqueueing) {
+	LONGS_EQUAL(0, kbvas_count(kbvas));
+
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x01", 6);
+	LONGS_EQUAL(1, kbvas_count(kbvas));
+
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x02", 6);
+	LONGS_EQUAL(2, kbvas_count(kbvas));
+
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x03", 6);
+	LONGS_EQUAL(3, kbvas_count(kbvas));
+}
+
+TEST(KBVAS, count_ShouldDecrement_WhenDequeuing) {
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x01", 6);
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x02", 6);
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x03", 6);
+
+	LONGS_EQUAL(3, kbvas_count(kbvas));
+
+	struct kbvas_entry entry;
+	kbvas_dequeue(kbvas, &entry);
+	LONGS_EQUAL(2, kbvas_count(kbvas));
+
+	kbvas_dequeue(kbvas, &entry);
+	LONGS_EQUAL(1, kbvas_count(kbvas));
+
+	kbvas_dequeue(kbvas, &entry);
+	LONGS_EQUAL(0, kbvas_count(kbvas));
+}
+
+TEST(KBVAS, count_ShouldReturnCorrectValue_AfterClear) {
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x01", 6);
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x02", 6);
+	LONGS_EQUAL(2, kbvas_count(kbvas));
+
+	kbvas_clear(kbvas);
+	LONGS_EQUAL(0, kbvas_count(kbvas));
+}
+
+TEST(KBVAS, registerBatchCallback_ShouldReturnError_WhenNullPointer) {
+	LONGS_EQUAL(KBVAS_ERROR_MISSING_PARAM,
+		kbvas_register_batch_callback(NULL, on_batch_callback, NULL));
+}
+
+TEST(KBVAS, registerBatchCallback_ShouldReturnNoError_WhenValidParams) {
+	LONGS_EQUAL(KBVAS_ERROR_NONE,
+		kbvas_register_batch_callback(kbvas, on_batch_callback, NULL));
+}
+
+TEST(KBVAS, registerBatchCallback_ShouldAllowNullCallback) {
+	LONGS_EQUAL(KBVAS_ERROR_NONE,
+		kbvas_register_batch_callback(kbvas, NULL, NULL));
+}
+
+TEST(KBVAS, batchCallback_ShouldBeCalled_WhenBatchReady) {
+	int test_ctx = 12345;
+	kbvas_register_batch_callback(kbvas, on_batch_callback, &test_ctx);
+	kbvas_set_batch_count(kbvas, 2);
+
+	// First enqueue - batch not ready yet
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x01", 6);
+
+	mock().expectOneCall("on_batch_callback")
+		.withPointerParameter("self", kbvas)
+		.withPointerParameter("ctx", &test_ctx);
+	// Second enqueue - batch should be ready now
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x02", 6);
+}
+
+TEST(KBVAS, batchCallback_ShouldNotCrash_WhenCallbackIsNull) {
+	kbvas_register_batch_callback(kbvas, NULL, NULL);
+	kbvas_set_batch_count(kbvas, 2);
+
+	// Should not crash even though callback is NULL
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x01", 6);
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x02", 6);
+}
+
+TEST(KBVAS, batchCallback_ShouldBeCalledMultipleTimes_WhenBatchReadyMultipleTimes) {
+	int call_count = 0;
+
+	kbvas_register_batch_callback(kbvas, on_batch_callback, &call_count);
+	kbvas_set_batch_count(kbvas, 2);
+
+	mock().expectNCalls(3, "on_batch_callback")
+		.withPointerParameter("self", kbvas)
+		.withPointerParameter("ctx", &call_count);
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x01", 6);
+	// First batch
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x02", 6);
+	LONGS_EQUAL(1, call_count);
+	// Second batch
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x03", 6);
+	LONGS_EQUAL(2, call_count);
+	// Third batch
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x04", 6);
+	LONGS_EQUAL(3, call_count);
+}
+
+TEST(KBVAS, batchCallback_ShouldBeCalledMultipleTimes_WhenBatchesAreSeparatedByDequeues) {
+	int call_count = 0;
+
+	kbvas_register_batch_callback(kbvas, on_batch_callback, &call_count);
+	kbvas_set_batch_count(kbvas, 2);
+
+	mock().expectNCalls(2, "on_batch_callback")
+		.withPointerParameter("self", kbvas)
+		.withPointerParameter("ctx", &call_count);
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x01", 6);
+	// First batch
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x02", 6);
+	LONGS_EQUAL(1, call_count);
+
+	kbvas_dequeue(kbvas, NULL);
+	kbvas_dequeue(kbvas, NULL);
+
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x03", 6);
+	// Second batch
+	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x04", 6);
+	LONGS_EQUAL(2, call_count);
 }

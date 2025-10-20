@@ -80,6 +80,8 @@ struct kbvas_entry {
 struct kbvas;
 struct kbvas_backend;
 
+typedef void (*kbvas_batch_callback_t)(struct kbvas *self, void *ctx);
+
 /**
  * @brief Callback type for iterating kbvas entries.
  *
@@ -195,6 +197,24 @@ void kbvas_destroy(struct kbvas *self);
 void kbvas_clear(struct kbvas *self);
 
 /**
+ * @brief Registers a callback function to be invoked for batch processing.
+ *
+ * This function allows the user to register a callback that will be called
+ * during batch operations. The callback will receive the context provided
+ * by the user.
+ *
+ * @note Only one callback can be registered at a time; registering a new
+ *       callback will replace the previously registered one.
+ *
+ * @param[in] self Pointer to the kbvas instance.
+ * @param[in] cb The callback function to be registered.
+ * @param[in] cb_ctx User-defined context to be passed to the callback function.
+ * @return A kbvas_error_t indicating the success or failure of the operation.
+ */
+kbvas_error_t kbvas_register_batch_callback(struct kbvas *self,
+		kbvas_batch_callback_t cb, void *cb_ctx);
+
+/**
  * @brief Removes a batch of entries from the kbvas instance.
  *
  * This function removes up to the configured batch count of entries
@@ -298,6 +318,17 @@ kbvas_error_t kbvas_peek(struct kbvas *self, struct kbvas_entry *entry);
  * @param[in] ctx        User-defined context passed to the callback.
  */
 void kbvas_iterate(struct kbvas *self, kbvas_iterator_t iterator, void *ctx);
+
+/**
+ * @brief Retrieves the number of elements in the kbvas instance.
+ *
+ * This function returns the total count of elements currently stored
+ * in the given kbvas instance.
+ *
+ * @param[in] self Pointer to the kbvas instance.
+ * @return The number of elements in the kbvas instance as a size_t.
+ */
+size_t kbvas_count(struct kbvas *self);
 
 #if defined(__cplusplus)
 }

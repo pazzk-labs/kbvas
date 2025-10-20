@@ -54,6 +54,9 @@ struct kbvas {
 	struct kbvas_backend_api *backend;
 	void *backend_ctx;
 	kbvas_batch_count_t batch_count;
+
+	kbvas_batch_callback_t batch_cb;
+	void *batch_cb_ctx;
 };
 
 static size_t parse_tlv(struct tlv *tlv, const uint8_t *data, size_t datasize)
@@ -270,6 +273,11 @@ static size_t count_entries(struct kbvas *self)
 	return count;
 }
 
+static bool is_batch_ready(struct kbvas *self)
+{
+	return count_entries(self) >= self->batch_count;
+}
+
 void kbvas_clear(struct kbvas *self)
 {
 	if (self == NULL) {
@@ -294,7 +302,7 @@ bool kbvas_is_batch_ready(struct kbvas *self)
 		return false;
 	}
 
-	return count_entries(self) >= self->batch_count;
+	return is_batch_ready(self);
 }
 
 kbvas_batch_count_t kbvas_get_batch_count(const struct kbvas *self)
@@ -363,6 +371,11 @@ kbvas_error_t kbvas_enqueue(struct kbvas *self,
 		struct kbvas_backend *backend =
 			(struct kbvas_backend *)self->backend;
 		err = (*self->backend->push)(backend, entry, self->backend_ctx);
+
+		if (err == KBVAS_ERROR_NONE && self->batch_cb != NULL &&
+				is_batch_ready(self)) {
+			(*self->batch_cb)(self, self->batch_cb_ctx);
+		}
 	}
 
 	free(entry);
@@ -402,6 +415,28 @@ void kbvas_iterate(struct kbvas *self, kbvas_iterator_t iterator, void *ctx)
 	if (err != KBVAS_ERROR_NONE) {
 		KBVAS_ERROR("Failed to iterate entries: %d", err);
 	}
+}
+
+size_t kbvas_count(struct kbvas *self)
+{
+	if (self == NULL) {
+		return 0;
+	}
+
+	return count_entries(self);
+}
+
+kbvas_error_t kbvas_register_batch_callback(struct kbvas *self,
+		kbvas_batch_callback_t cb, void *cb_ctx)
+{
+	if (self == NULL) {
+		return KBVAS_ERROR_MISSING_PARAM;
+	}
+
+	self->batch_cb = cb;
+	self->batch_cb_ctx = cb_ctx;
+
+	return KBVAS_ERROR_NONE;
 }
 
 struct kbvas *kbvas_create(struct kbvas_backend_api *api, void *backend_ctx)

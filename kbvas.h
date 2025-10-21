@@ -17,6 +17,7 @@ extern "C" {
 #include <time.h>
 
 #define KBVAS_VENDOR_NAME			"kr.or.keco"
+#define KBVAS_DT_IDSTR				"BatteryInfo"
 
 #if !defined(KBVAS_USE_RAW_ENCODING)
 #define KBVAS_USE_BASE64

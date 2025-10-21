@@ -329,7 +329,8 @@ void kbvas_set_batch_count(struct kbvas *self, kbvas_batch_count_t batch_count)
 	KBVAS_INFO("Batch count set to %u", self->batch_count);
 }
 
-kbvas_error_t kbvas_peek(struct kbvas *self, struct kbvas_entry *entry)
+kbvas_error_t kbvas_peek(struct kbvas *self,
+		int entry_index, struct kbvas_entry *entry)
 {
 	if (self == NULL || entry == NULL) {
 		return KBVAS_ERROR_MISSING_PARAM;
@@ -340,7 +341,8 @@ kbvas_error_t kbvas_peek(struct kbvas *self, struct kbvas_entry *entry)
 	}
 
 	struct kbvas_backend *backend = (struct kbvas_backend *)self->backend;
-	return (*self->backend->peek)(backend, entry, self->backend_ctx);
+	return (*self->backend->peek)(backend, entry_index,
+			entry, self->backend_ctx);
 }
 
 kbvas_error_t kbvas_enqueue(struct kbvas *self,

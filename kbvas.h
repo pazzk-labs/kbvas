@@ -120,7 +120,7 @@ struct kbvas_backend_api {
 	 */
 	kbvas_error_t (*pop)(struct kbvas_backend *self,
 			struct kbvas_entry *entry, void *ctx);
-	kbvas_error_t (*peek)(struct kbvas_backend *self,
+	kbvas_error_t (*peek)(struct kbvas_backend *self, int entry_index,
 			struct kbvas_entry *entry, void *ctx);
 	/**
 	 * @brief Remove @p n entries from the head of the queue.
@@ -296,12 +296,17 @@ kbvas_error_t kbvas_dequeue(struct kbvas *self, struct kbvas_entry *entry);
  * removing it, allowing the caller to inspect the data.
  *
  * @param[in] self A pointer to the kbvas instance.
+ * @param[in] entry_index The index of the entry to peek at, specified in
+ *            entry units (not byte offset). An index of 0 refers to the first
+ *            entry, +1 refers to the second entry, and -1 refers to the last
+ *            entry.
  * @param[out] entry A pointer to a kbvas_entry structure to store the peeked
  *             data.
  *
  * @return A kbvas_error_t indicating the result of the operation.
  */
-kbvas_error_t kbvas_peek(struct kbvas *self, struct kbvas_entry *entry);
+kbvas_error_t kbvas_peek(struct kbvas *self,
+		int entry_index, struct kbvas_entry *entry);
 
 /**
  * @brief Iterates over queued entries in the kbvas instance.

@@ -232,6 +232,12 @@ const uint8_t expected1[] = {
 	0x6c,0x70,0x61,0x57,0x6c,0x70,0x61,0x57,0x71,0x42,0x51,0x2f,0x50,0x7a,0x38,0x2f,
 	0x50,0x7a,0x38,0x2f,0x50,0x7a,0x38,0x2f,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
 };
+// Dummy samples for testing peek index functionality
+static const uint8_t dummy_sample1[] = {0xA1, 0x04, 0x00, 0x00, 0x00, 0x01};  // timestamp=1
+static const uint8_t dummy_sample2[] = {0xA1, 0x04, 0x00, 0x00, 0x00, 0x02};  // timestamp=2
+static const uint8_t dummy_sample3[] = {0xA1, 0x04, 0x00, 0x00, 0x00, 0x03};  // timestamp=3
+static const uint8_t dummy_sample4[] = {0xA1, 0x04, 0x00, 0x00, 0x00, 0x04};  // timestamp=4
+
 static const uint8_t expected2[] = {
 	0x24,0x6d,0xbc,0x66,0x00,0x00,0x00,0x00,0x6f,0x68,0x45,0x31,0x57,0x55,0x70,0x61,
 	0x52,0x55,0x4d,0x34,0x52,0x54,0x41,0x79,0x51,0x54,0x45,0x7a,0x4e,0x54,0x41,0x79,
@@ -389,7 +395,7 @@ TEST(KBVAS, dequeue_ShouldReturnEntriesInOrder) {
 
 TEST(KBVAS, peek_ShouldFail_WhenEmpty) {
 	struct kbvas_entry entry;
-	LONGS_EQUAL(KBVAS_ERROR_NOENT, kbvas_peek(kbvas, &entry));
+	LONGS_EQUAL(KBVAS_ERROR_NOENT, kbvas_peek(kbvas, 0, &entry));
 }
 
 TEST(KBVAS, dequeue_ShouldFail_WhenEmpty) {
@@ -548,8 +554,8 @@ TEST(KBVAS, peek_ShouldNotModifyQueue) {
 
 	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x01", 6);
 
-	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, &entry1));
-	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, &entry2));
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, 0, &entry1));
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, 0, &entry2));
 
 	// Both peeks should return the same data
 	LONGS_EQUAL(0, memcmp(&entry1, &entry2, sizeof(entry1)));
@@ -579,12 +585,12 @@ TEST(KBVAS, nullPointerChecks_ShouldHandleGracefully) {
 	struct kbvas_entry entry;
 
 	// NULL kbvas pointer checks
-	LONGS_EQUAL(KBVAS_ERROR_MISSING_PARAM, kbvas_peek(NULL, &entry));
+	LONGS_EQUAL(KBVAS_ERROR_MISSING_PARAM, kbvas_peek(NULL, 0, &entry));
 	LONGS_EQUAL(KBVAS_ERROR_MISSING_PARAM, kbvas_dequeue(NULL, &entry));
 	LONGS_EQUAL(KBVAS_ERROR_MISSING_PARAM, kbvas_enqueue(NULL, "data", 4));
 
 	// NULL entry pointer checks
-	LONGS_EQUAL(KBVAS_ERROR_MISSING_PARAM, kbvas_peek(kbvas, NULL));
+	LONGS_EQUAL(KBVAS_ERROR_MISSING_PARAM, kbvas_peek(kbvas, 0, NULL));
 
 	// NULL in iterate
 	kbvas_iterate(NULL, count_iterator, NULL);
@@ -782,4 +788,152 @@ TEST(KBVAS, batchCallback_ShouldBeCalledMultipleTimes_WhenBatchesAreSeparatedByD
 	// Second batch
 	kbvas_enqueue(kbvas, "\xA1\x04\x00\x00\x00\x04", 6);
 	LONGS_EQUAL(2, call_count);
+}
+
+TEST(KBVAS, peek_ShouldReturnCorrectEntry_WithPositiveIndex) {
+	// Enqueue sample data entries
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_enqueue(kbvas, sample1, sizeof(sample1)));
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_enqueue(kbvas, sample2, sizeof(sample2)));
+
+	struct kbvas_entry entry0, entry1;
+
+	// Test first entry (index 0)
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, 0, &entry0));
+	LONGS_EQUAL(0, memcmp(expected1, &entry0, sizeof(expected1)));
+
+	// Test second entry (index 1)
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, 1, &entry1));
+	LONGS_EQUAL(0, memcmp(expected2, &entry1, sizeof(expected2)));
+}
+
+TEST(KBVAS, peek_ShouldReturnCorrectEntry_WithNegativeIndex) {
+	// Enqueue sample data entries
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_enqueue(kbvas, sample1, sizeof(sample1)));
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_enqueue(kbvas, sample2, sizeof(sample2)));
+
+	struct kbvas_entry entry_minus1, entry_minus2;
+
+	// Test last entry with -1 (should be sample2)
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, -1, &entry_minus1));
+	LONGS_EQUAL(0, memcmp(expected2, &entry_minus1, sizeof(expected2)));
+
+	// Test first entry with -2 (should be sample1)
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, -2, &entry_minus2));
+	LONGS_EQUAL(0, memcmp(expected1, &entry_minus2, sizeof(expected1)));
+}
+
+TEST(KBVAS, peek_ShouldMatchBetween_PositiveAndNegativeIndex) {
+	// Enqueue 4 distinct entries
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_enqueue(kbvas, dummy_sample1, sizeof(dummy_sample1)));
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_enqueue(kbvas, dummy_sample2, sizeof(dummy_sample2)));
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_enqueue(kbvas, dummy_sample3, sizeof(dummy_sample3)));
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_enqueue(kbvas, dummy_sample4, sizeof(dummy_sample4)));
+
+	struct kbvas_entry entry_pos, entry_neg;
+
+	// Index 0 and -4 should be the same (dummy_sample1)
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, 0, &entry_pos));
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, -4, &entry_neg));
+	LONGS_EQUAL(0, memcmp(&entry_pos, &entry_neg, sizeof(entry_pos)));
+	LONGS_EQUAL(1, entry_pos.timestamp);
+
+	// Index 1 and -3 should be the same (dummy_sample2)
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, 1, &entry_pos));
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, -3, &entry_neg));
+	LONGS_EQUAL(0, memcmp(&entry_pos, &entry_neg, sizeof(entry_pos)));
+	LONGS_EQUAL(2, entry_pos.timestamp);
+
+	// Index 2 and -2 should be the same (dummy_sample3)
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, 2, &entry_pos));
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, -2, &entry_neg));
+	LONGS_EQUAL(0, memcmp(&entry_pos, &entry_neg, sizeof(entry_pos)));
+	LONGS_EQUAL(3, entry_pos.timestamp);
+
+	// Index 3 and -1 should be the same (dummy_sample4)
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, 3, &entry_pos));
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, -1, &entry_neg));
+	LONGS_EQUAL(0, memcmp(&entry_pos, &entry_neg, sizeof(entry_pos)));
+	LONGS_EQUAL(4, entry_pos.timestamp);
+}
+
+TEST(KBVAS, peek_ShouldFail_WithOutOfRangePositiveIndex) {
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_enqueue(kbvas, dummy_sample1, sizeof(dummy_sample1)));
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_enqueue(kbvas, dummy_sample2, sizeof(dummy_sample2)));
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_enqueue(kbvas, dummy_sample3, sizeof(dummy_sample3)));
+
+	struct kbvas_entry entry;
+
+	// Valid indices are 0, 1, 2
+	LONGS_EQUAL(KBVAS_ERROR_NOENT, kbvas_peek(kbvas, 3, &entry));
+	LONGS_EQUAL(KBVAS_ERROR_NOENT, kbvas_peek(kbvas, 4, &entry));
+	LONGS_EQUAL(KBVAS_ERROR_NOENT, kbvas_peek(kbvas, 100, &entry));
+}
+
+TEST(KBVAS, peek_ShouldFail_WithOutOfRangeNegativeIndex) {
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_enqueue(kbvas, dummy_sample1, sizeof(dummy_sample1)));
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_enqueue(kbvas, dummy_sample2, sizeof(dummy_sample2)));
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_enqueue(kbvas, dummy_sample3, sizeof(dummy_sample3)));
+
+	struct kbvas_entry entry;
+
+	// Valid negative indices are -1, -2, -3
+	LONGS_EQUAL(KBVAS_ERROR_NOENT, kbvas_peek(kbvas, -4, &entry));
+	LONGS_EQUAL(KBVAS_ERROR_NOENT, kbvas_peek(kbvas, -5, &entry));
+	LONGS_EQUAL(KBVAS_ERROR_NOENT, kbvas_peek(kbvas, -100, &entry));
+}
+
+TEST(KBVAS, peek_ShouldWorkCorrectly_WithSingleEntry) {
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_enqueue(kbvas, dummy_sample1, sizeof(dummy_sample1)));
+
+	struct kbvas_entry entry0, entry_minus1;
+
+	// Test with index 0
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, 0, &entry0));
+	LONGS_EQUAL(1, entry0.timestamp);
+
+	// Test with index -1
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, -1, &entry_minus1));
+	LONGS_EQUAL(1, entry_minus1.timestamp);
+
+	// Both should be the same
+	LONGS_EQUAL(0, memcmp(&entry0, &entry_minus1, sizeof(entry0)));
+
+	// Out of range
+	LONGS_EQUAL(KBVAS_ERROR_NOENT, kbvas_peek(kbvas, 1, &entry0));
+	LONGS_EQUAL(KBVAS_ERROR_NOENT, kbvas_peek(kbvas, -2, &entry0));
+}
+
+TEST(KBVAS, peek_ShouldNotModifyQueue_WhenAccessingDifferentIndices) {
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_enqueue(kbvas, dummy_sample1, sizeof(dummy_sample1)));
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_enqueue(kbvas, dummy_sample2, sizeof(dummy_sample2)));
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_enqueue(kbvas, dummy_sample3, sizeof(dummy_sample3)));
+
+	struct kbvas_entry entry;
+
+	// Multiple peeks with different indices
+	for (int i = 0; i < 3; i++) {
+		LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, 0, &entry));
+		LONGS_EQUAL(1, entry.timestamp);
+
+		LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, 1, &entry));
+		LONGS_EQUAL(2, entry.timestamp);
+
+		LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, 2, &entry));
+		LONGS_EQUAL(3, entry.timestamp);
+
+		LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_peek(kbvas, -1, &entry));
+		LONGS_EQUAL(3, entry.timestamp);
+	}
+
+	// Verify queue still has all entries
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_dequeue(kbvas, &entry));
+	LONGS_EQUAL(1, entry.timestamp);
+
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_dequeue(kbvas, &entry));
+	LONGS_EQUAL(2, entry.timestamp);
+
+	LONGS_EQUAL(KBVAS_ERROR_NONE, kbvas_dequeue(kbvas, &entry));
+	LONGS_EQUAL(3, entry.timestamp);
+
+	LONGS_EQUAL(KBVAS_ERROR_NOENT, kbvas_dequeue(kbvas, &entry));
 }

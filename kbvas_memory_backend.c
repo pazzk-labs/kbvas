@@ -89,19 +89,30 @@ static kbvas_error_t do_pop(struct kbvas_backend *self,
 	return KBVAS_ERROR_NONE;
 }
 
-static kbvas_error_t do_peek(struct kbvas_backend *self,
+static kbvas_error_t do_peek(struct kbvas_backend *self, int entry_index,
 		struct kbvas_entry *entry, void *ctx)
 {
-	if (list_empty(&self->entries)) {
+	const size_t count = count_entries(self);
+
+	if (count == 0 || entry_index >= (int)count ||
+			entry_index < -(int)count) {
 		return KBVAS_ERROR_NOENT;
 	}
 
-	struct entry *p = list_entry(list_first(&self->entries),
-			struct entry, link);
+	const size_t idx = entry_index >= 0 ?
+		(size_t)entry_index : count - (size_t)(-entry_index - 1) - 1;
 
-	memcpy(entry, &p->entry, sizeof(*entry));
+	struct list *p;
+	size_t i = 0;
+	list_for_each(p, &self->entries) {
+		if (i++ == idx) {
+			struct entry *e = list_entry(p, struct entry, link);
+			memcpy(entry, &e->entry, sizeof(*entry));
+			return KBVAS_ERROR_NONE;
+		}
+	}
 
-	return KBVAS_ERROR_NONE;
+	return KBVAS_ERROR_INTERNAL;
 }
 
 static kbvas_error_t do_drop(struct kbvas_backend *self, size_t n, void *ctx)

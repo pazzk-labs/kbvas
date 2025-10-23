@@ -215,6 +215,7 @@ static kbvas_error_t process_tlv(const uint8_t *tlv, size_t tlv_len,
 	const size_t encoded_len = lm_base64_encode(info->base64_encoded,
 			sizeof(info->base64_encoded), &tlv[MIN_TLV_LEN], len);
 	KBVAS_DEBUG("%lu bytes of data encoded to %lu bytes", len, encoded_len);
+	(void)encoded_len; /* Suppress unused warning when debug is disabled */
 #else
 	KBVAS_DEBUG("Parsed battery info %lu: %.*s, %u.%u %u, %u %u",
 			info->timestamp, 17, info->data.vin,
